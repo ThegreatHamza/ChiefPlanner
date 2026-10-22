@@ -3,17 +3,32 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ChiefPlanner — Stage 1 Core</title>
-<style>
-:root{color-scheme:light dark;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}body{max-width:900px;margin:48px auto;padding:0 24px;line-height:1.6}h1{font-family:system-ui,sans-serif}code,pre{background:color-mix(in srgb,CanvasText 8%,Canvas);border-radius:6px}pre{padding:16px;overflow:auto} .note{border-left:3px solid #ff6b1a;padding:8px 16px}
-</style>
+<title>ChiefPlanner — Construction scheduling</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>ChiefPlanner <small>— Stage 1 core</small></h1>
-<p>Calendar helpers, bilingual glossary skeleton, and CPM engine are loaded. This stage intentionally has no planner interface.</p>
-<p class="note">Open the browser developer console to inspect the self-test results. Run <code>?test=1</code> in the URL to execute the checks explicitly.</p>
-<pre id="status">Core initializing…</pre>
-<script>
+<header class="topbar"><div class="brand">Chief<span>Planner</span></div><div class="actions">
+<button class="btn dark" id="undo">↶ Undo</button><button class="btn dark" id="redo">↷ Redo</button>
+<select id="language" class="select" aria-label="Language" style="width:auto"><option value="en">English</option><option value="fr">Français</option></select>
+<button class="btn" id="export">Export JSON</button><button class="btn" id="import">Import JSON</button><input id="file" type="file" accept=".json,application/json" class="hidden"></div></header>
+<main class="workspace">
+<div class="pagehead"><div><div class="eyebrow">CONSTRUCTION PLANNING WORKSPACE</div><h1 id="title">Project schedule</h1><div id="subtitle" class="sub">Edit activities, connect dependencies, and inspect the critical path.</div></div><div class="toolbar"><button class="btn" id="sample">Load sample</button><button class="btn primary" id="add">＋ Add task</button></div></div>
+<div class="notice" id="notice" role="status">Local-first prototype: data stays in this browser. Export JSON for a backup.</div>
+<section class="meta-grid">
+<div class="meta-card"><label id="projectLabel" for="projectName">PROJECT</label><input id="projectName" class="field" value="New construction project"></div>
+<div class="meta-card"><label id="clientLabel" for="clientName">CLIENT</label><input id="clientName" class="field" placeholder="Client / owner"></div>
+<div class="meta-card"><label id="siteLabel" for="siteName">SITE</label><input id="siteName" class="field" placeholder="Site / location"></div>
+<div class="meta-card"><label id="startLabel" for="projectStart">PROJECT START</label><input id="projectStart" type="date" class="field" value="2026-01-05"></div></section>
+<section class="stats">
+<div class="stat"><div class="k" id="tasksLabel">Activities</div><div class="v" id="numTasks">0</div><div class="hint">Tasks and milestones</div></div>
+<div class="stat"><div class="k" id="durationLabel">Duration</div><div class="v" id="numDuration">—</div><div class="hint">Working days</div></div>
+<div class="stat"><div class="k" id="finishLabel">Forecast finish</div><div class="v" id="finishDate">—</div><div class="hint">Calculated from dependencies</div></div>
+<div class="stat"><div class="k" id="criticalLabel">Critical tasks</div><div class="v" id="numCritical">0</div><div class="hint">Zero total float</div></div></section>
+<section class="panel"><div class="panel-head"><h2 id="register">Task register</h2><div class="toolbar"><input id="taskSearch" class="field" style="width:180px" placeholder="Search tasks…"><select id="filter" class="select" style="width:auto"><option value="all">All tasks</option><option value="critical">Critical only</option><option value="milestones">Milestones</option></select><button class="btn" id="deleteSelected" disabled>Delete selected</button></div></div>
+<div class="table-wrap"><table><thead><tr><th><input id="selectAll" type="checkbox" aria-label="Select all"></th><th>ID</th><th>Task name</th><th>Type</th><th>Duration</th><th>Predecessors</th><th>Start</th><th>Finish</th><th>Total float</th><th>Status</th><th></th></tr></thead><tbody id="rows"></tbody></table><div id="empty" class="empty hidden">No tasks yet. Add a task or load the sample.</div></div></section>
+<section class="panel"><div class="panel-head"><div><h2 id="ganttTitle">Gantt overview</h2><div class="sub">Bars are positioned by calculated working-day dates.</div></div><div class="toolbar"><span class="pill">Task</span><span class="pill crit">Critical</span><span class="pill">Milestone</span></div></div><div id="gantt" class="gantt"><div class="empty">Add tasks to see the Gantt chart.</div></div></section>
+<div class="footer"><span><i class="status-dot"></i><span id="saveStatus">Saved locally</span></span><span>ChiefPlanner · Stage 2 · Browser-only prototype</span></div>
+</main><div id="modalRoot"></div><script>
 'use strict';
 
 /* =========================================================
@@ -270,5 +285,6 @@ document.getElementById('status').textContent=shouldTest
   : 'Calendar, CPM, i18n and Store modules loaded. Add ?test=1 to run self-tests.';
 window.ChiefPlannerCore={Calendar,CPM,Store,i18n,t,checkI18n,runSelfTests};
 </script>
+<script src="app.js" defer></script>
 </body>
 </html>
