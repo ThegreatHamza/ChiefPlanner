@@ -28,7 +28,7 @@
 <div class="table-wrap"><table><thead><tr><th><input id="selectAll" type="checkbox" aria-label="Select all"></th><th>ID</th><th>Task name</th><th>Type</th><th>Duration</th><th>Predecessors</th><th>Start</th><th>Finish</th><th>Total float</th><th>Status</th><th></th></tr></thead><tbody id="rows"></tbody></table><div id="empty" class="empty hidden">No tasks yet. Add a task or load the sample.</div></div></section>
 <section class="panel"><div class="panel-head"><div><h2 id="ganttTitle">Gantt overview</h2><div class="sub">Bars are positioned by calculated working-day dates.</div></div><div class="toolbar"><span class="pill">Task</span><span class="pill crit">Critical</span><span class="pill">Milestone</span></div></div><div id="gantt" class="gantt"><div class="empty">Add tasks to see the Gantt chart.</div></div></section>
 <div class="footer"><span><i class="status-dot"></i><span id="saveStatus">Saved locally</span></span><span>ChiefPlanner · Stage 2 · Browser-only prototype</span></div>
-</main><div id="modalRoot"></div><script>
+</main><div id="modalRoot"></div><pre id="status" class="hidden"></pre><script>
 'use strict';
 
 /* =========================================================
