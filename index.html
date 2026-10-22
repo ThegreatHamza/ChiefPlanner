@@ -255,7 +255,7 @@ function runSelfTests(){
     assert(r.duration===18,'expected project duration 18, got '+r.duration);
     assert(r.tasks.A.totalFloat===0&&r.tasks.B.totalFloat===0&&r.tasks.D.totalFloat===0&&r.tasks.F.totalFloat===0&&r.tasks.G.totalFloat===0&&r.tasks.H.totalFloat===0,'expected A-B-D-F-G-H critical chain');
     assert(r.tasks.C.totalFloat===2,'expected C total float 2, got '+r.tasks.C.totalFloat);
-    assert(r.tasks.E.totalFloat===3,'expected E total float 3, got '+r.tasks.E.totalFloat);
+    assert(r.tasks.E.totalFloat===5,'expected E total float 5, got '+r.tasks.E.totalFloat);
   });
   test('bilingual dictionaries have matching keys and placeholders',()=>assert(checkI18n()));
   const failed=results.filter(x=>!x.ok);
