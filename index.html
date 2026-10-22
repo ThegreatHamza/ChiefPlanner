@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ChiefPlanner — Stage 1 Core</title>
+<style>
+:root{color-scheme:light dark;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}body{max-width:900px;margin:48px auto;padding:0 24px;line-height:1.6}h1{font-family:system-ui,sans-serif}code,pre{background:color-mix(in srgb,CanvasText 8%,Canvas);border-radius:6px}pre{padding:16px;overflow:auto} .note{border-left:3px solid #ff6b1a;padding:8px 16px}
+</style>
+</head>
+<body>
+<h1>ChiefPlanner <small>— Stage 1 core</small></h1>
+<p>Calendar helpers, bilingual glossary skeleton, and CPM engine are loaded. This stage intentionally has no planner interface.</p>
+<p class="note">Open the browser developer console to inspect the self-test results. Run <code>?test=1</code> in the URL to execute the checks explicitly.</p>
+<pre id="status">Core initializing…</pre>
+<script>
+'use strict';
+
+/* =========================================================
+   Calendar — local ISO dates only; no millisecond day math.
+   Workday ordinals are used internally by the CPM engine.
+   ========================================================= */
+const Calendar = (() => {
+  const parse = iso => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso));
+    if (!m) throw new TypeError('Expected an ISO date (YYYY-MM-DD): ' + iso);
+    const d = new Date(Number(m[1]), Number(m[2])-1, Number(m[3]), 12);
+    if (d.getFullYear() !== +m[1] || d.getMonth() !== +m[2]-1 || d.getDate() !== +m[3]) {
+      throw new TypeError('Invalid calendar date: ' + iso);
+    }
+    return d;
+  };
+  const iso = d => [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+  const shift = (date, n) => { const d=parse(date); d.setDate(d.getDate()+n); return iso(d); };
+  const weekday = date => parse(date).getDay(); // Sunday=0, Saturday=6
+  const normalise = cal => ({
+    workdays: Array.isArray(cal?.workdays) ? cal.workdays : [1,2,3,4,5],
+    holidays: new Map((cal?.holidays || []).map(h => [h.date,h.label || '']))
+  });
+  const isWorkday = (date, calendar={}) => {
+    const c=normalise(calendar), day=weekday(date);
+    return c.workdays.includes(day===0?7:day) && !c.holidays.has(date);
+  };
+  const nextWorkday = (date, calendar={}) => {
+    let d=date, guard=0;
+    while(!isWorkday(d,calendar)){ d=shift(d,1); if(++guard>3700) throw new Error('No workday found within ten years'); }
+    return d;
+  };
+  // Add n working days; zero returns the same date, even if it is not a workday.
+  const addWorkdays = (date,n,calendar={}) => {
+    if(!Number.isInteger(n)) throw new TypeError('Working-day offset must be an integer');
+    let d=date, left=Math.abs(n), dir=n<0?-1:1, guard=0;
+    while(left>0){ d=shift(d,dir); if(isWorkday(d,calendar)) left--; if(++guard>100000) throw new Error('Working-day range too large'); }
+    return d;
+  };
+  // Count working dates in [a,b), signed when b precedes a.
+  const workdaysBetween = (a,b,calendar={}) => {
+    if(a===b) return 0;
+    if(b<a) return -workdaysBetween(b,a,calendar);
+    let d=a,count=0,guard=0;
+    while(d<b){ if(isWorkday(d,calendar)) count++; d=shift(d,1); if(++guard>100000) throw new Error('Date range too large'); }
+    return count;
+  };
+  const toWorkOrdinal = (date, calendar={}) => {
+    const anchor='2000-01-03'; // Monday
+    return workdaysBetween(anchor,date,calendar);
+  };
+  const fromWorkOrdinal = (ordinal, calendar={}) => {
+    if(!Number.isInteger(ordinal)) throw new TypeError('Workday ordinal must be an integer');
+    return addWorkdays('2000-01-03',ordinal,calendar);
+  };
+  return {parse,iso,shift,isWorkday,nextWorkday,addWorkdays,workdaysBetween,toWorkOrdinal,fromWorkOrdinal};
+})();
+
+/* =========================================================
+   i18n — keys are deliberately identical in both languages.
+   All future UI text must be added to both dictionaries.
+   ========================================================= */
+const i18n = {
+  fr: {
+    'app.name':'ChiefPlanner',
+    'tagline':'Planifiez le chantier. Maîtrisez le chemin critique.',
+    'task':'Tâche','milestone':'Jalon','summary':'Tâche récapitulative',
+    'duration':'Durée','start':'Début','finish':'Fin','predecessors':'Prédécesseurs',
+    'lag':'Décalage','lead':'Avance','percent':'Avancement (%)','totalFloat':'Marge totale',
+    'freeFloat':'Marge libre','criticalPath':'Chemin critique','criticalTask':'Tâche critique',
+    'baseline':'Planning de référence','variance':'Écart','workingDays':'Jours ouvrés',
+    'holidays':'Jours fériés','project':'Projet','client':'Maître d’ouvrage','site':'Chantier',
+    'engineer':'Ingénieur','revision':'Indice de révision','today':'Aujourd’hui',
+    'zoom.day':'Jour','zoom.week':'Semaine','zoom.month':'Mois',
+    'earthworks':'Terrassement','foundations':'Fondations','structure':'Gros œuvre',
+    'masonry':'Maçonnerie','mep':'Lots techniques (CVC, plomberie, électricité)',
+    'finishes':'Second œuvre et finitions','handover':'Réception des travaux',
+    'siteSetup':'Installation de chantier','formwork':'Coffrage','rebar':'Ferraillage',
+    'curing':'Cure du béton','dependency.FS':'Fin-Début','dependency.SS':'Début-Début',
+    'dependency.FF':'Fin-Fin','dependency.SF':'Début-Fin','criticalBadge':'Critique',
+    'day.one':'{count} jour','day.other':'{count} jours',
+    'toast.cycle':'Dépendances circulaires entre : {tasks}',
+    'error.predecessor':'Format de prédécesseur invalide.',
+    'error.schema':'Fichier de projet invalide ou non pris en charge.',
+    'status.ready':'Noyau de planification initialisé.',
+    'status.tests':'Auto-tests exécutés. Consultez la console.',
+    'status.noTests':'Noyau initialisé. Ajoutez ?test=1 pour lancer les auto-tests.',
+    'test.pass':'RÉUSSI','test.fail':'ÉCHEC'
+  },
+  en: {
+    'app.name':'ChiefPlanner',
+    'tagline':'Plan the site. Control the critical path.',
+    'task':'Task','milestone':'Milestone','summary':'Summary task',
+    'duration':'Duration','start':'Start','finish':'Finish','predecessors':'Predecessors',
+    'lag':'Lag','lead':'Lead','percent':'% complete','totalFloat':'Total float',
+    'freeFloat':'Free float','criticalPath':'Critical path','criticalTask':'Critical task',
+    'baseline':'Baseline','variance':'Variance','workingDays':'Working days',
+    'holidays':'Holidays','project':'Project','client':'Client','site':'Site',
+    'engineer':'Engineer','revision':'Revision','today':'Today',
+    'zoom.day':'Day','zoom.week':'Week','zoom.month':'Month',
+    'earthworks':'Earthworks','foundations':'Foundations','structure':'Structure',
+    'masonry':'Masonry','mep':'MEP','finishes':'Finishes','handover':'Handover',
+    'siteSetup':'Site setup','formwork':'Formwork','rebar':'Rebar',
+    'curing':'Concrete curing','dependency.FS':'Finish-to-Start',
+    'dependency.SS':'Start-to-Start','dependency.FF':'Finish-to-Finish',
+    'dependency.SF':'Start-to-Finish','criticalBadge':'Critical',
+    'day.one':'{count} day','day.other':'{count} days',
+    'toast.cycle':'Circular dependencies between: {tasks}',
+    'error.predecessor':'Invalid predecessor syntax.',
+    'error.schema':'Invalid or unsupported project file.',
+    'status.ready':'Planning core initialized.',
+    'status.tests':'Self-tests executed. See the console.',
+    'status.noTests':'Core initialized. Add ?test=1 to run self-tests.',
+    'test.pass':'PASS','test.fail':'FAIL'
+  }
+};
+function t(key, params={}) {
+  const lang = project?.meta?.lang || 'en';
+  let value = i18n[lang]?.[key] ?? i18n.en[key] ?? key;
+  return value.replace(/\{(\w+)\}/g, (_,name) => params[name] ?? '{'+name+'}');
+}
+function checkI18n() {
+  const a=Object.keys(i18n.fr).sort(), b=Object.keys(i18n.en).sort();
+  const missing=a.filter(k=>!Object.hasOwn(i18n.en,k)).concat(b.filter(k=>!Object.hasOwn(i18n.fr,k)));
+  const empty=[...a.map(k=>['fr',k]),...b.map(k=>['en',k])].filter(([l,k])=>typeof i18n[l][k]!=='string'||!i18n[l][k].trim());
+  const placeholders=dict=>Object.fromEntries(Object.entries(dict).map(([k,v])=>[k,[...v.matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort().join(',')]));
+  const pf=placeholders(i18n.fr), pe=placeholders(i18n.en);
+  const mismatch=[...new Set([...Object.keys(pf),...Object.keys(pe)])].filter(k=>(pf[k]||'')!==(pe[k]||''));
+  if(missing.length||empty.length||mismatch.length) throw Error('i18n incomplete: '+JSON.stringify({missing,empty,mismatch}));
+  return true;
+}
+
+/* =========================================================
+   CPM — precedence links become start-time inequalities.
+   A topological pass computes early dates; reverse pass gives
+   late dates and float. All durations are working-day counts.
+   ========================================================= */
+const CPM = (() => {
+  const TYPES=['FS','SS','FF','SF'];
+  const alias={FD:'FS',DD:'SS',FF:'FF',DF:'SF'};
+  function normaliseType(type){ const x=String(type||'FS').toUpperCase(); const y=alias[x]||x; if(!TYPES.includes(y)) throw Error('Unknown dependency type: '+type); return y; }
+  function delta(link,pred,succ) {
+    const lag=Number(link.lagDays||0);
+    switch(normaliseType(link.type)){
+      case 'FS': return pred.durationDays+lag;
+      case 'SS': return lag;
+      case 'FF': return pred.durationDays-succ.durationDays+lag;
+      case 'SF': return -succ.durationDays+lag;
+    }
+  }
+  function topological(tasks) {
+    const byId=new Map(tasks.map(x=>[x.id,x])), indegree=new Map(tasks.map(x=>[x.id,0])), outgoing=new Map(tasks.map(x=>[x.id,[]]));
+    for(const task of tasks) for(const link of task.links||[]) {
+      if(!byId.has(link.fromId)) throw Error('Missing predecessor '+link.fromId+' for '+task.id);
+      if(link.fromId===task.id) throw Error('Circular dependency: '+task.id);
+      indegree.set(task.id,indegree.get(task.id)+1); outgoing.get(link.fromId).push(task.id);
+    }
+    const queue=tasks.filter(x=>indegree.get(x.id)===0).map(x=>x.id), order=[];
+    for(let i=0;i<queue.length;i++){ const id=queue[i]; order.push(id); for(const to of outgoing.get(id)){ indegree.set(to,indegree.get(to)-1); if(indegree.get(to)===0) queue.push(to); } }
+    if(order.length!==tasks.length){ const cycle=tasks.filter(x=>indegree.get(x.id)>0).map(x=>x.name||x.id); throw Error('Circular dependency: '+cycle.join(', ')); }
+    return {order,byId,outgoing};
+  }
+  function calculate(tasks, calendar={workdays:[1,2,3,4,5],holidays:[],projectStart:'2026-01-05'}) {
+    const work=tasks.filter(x=>x.type!=='summary').map(x=>({...x,durationDays:x.type==='milestone'?0:Math.max(0,Number(x.durationDays)||0),links:(x.links||[]).map(l=>({...l,type:normaliseType(l.type)}))}));
+    const {order,byId,outgoing}=topological(work), es={},ef={},ls={},lf={},totalFloat={},freeFloat={},isCritical={};
+    const startOrd=Calendar.toWorkOrdinal(Calendar.nextWorkday(calendar.projectStart||'2026-01-05',calendar));
+    for(const id of order){
+      const task=byId.get(id);
+      let earliest=startOrd;
+      for(const link of task.links){ const p=byId.get(link.fromId); earliest=Math.max(earliest,es[p.id]+delta(link,p,task)); }
+      if(task.startNoEarlierThan) earliest=Math.max(earliest,Calendar.toWorkOrdinal(Calendar.nextWorkday(task.startNoEarlierThan,calendar)));
+      es[id]=earliest; ef[id]=earliest+task.durationDays;
+    }
+    const projectFinish=Math.max(startOrd,...work.map(x=>ef[x.id]));
+    for(const id of [...order].reverse()){
+      const task=byId.get(id), succ=outgoing.get(id);
+      let latest=projectFinish-task.durationDays;
+      for(const sid of succ){ const s=byId.get(sid); for(const link of s.links.filter(l=>l.fromId===id)) latest=Math.min(latest,ls[sid]-delta(link,task,s)); }
+      ls[id]=latest; lf[id]=latest+task.durationDays; totalFloat[id]=Math.max(0,ls[id]-es[id]);
+      const limits=succ.map(sid=>{const s=byId.get(sid);return es[sid]-delta((s.links||[]).find(l=>l.fromId===id),task,s);});
+      freeFloat[id]=limits.length?Math.max(0,Math.min(...limits)-es[id]):Math.max(0,projectFinish-ef[id]);
+      isCritical[id]=totalFloat[id]===0;
+    }
+    const computed={};
+    for(const task of work) computed[task.id]={...task,ES:es[task.id],EF:ef[task.id],LS:ls[task.id],LF:lf[task.id],totalFloat:totalFloat[task.id],freeFloat:freeFloat[task.id],isCritical:isCritical[task.id],start:Calendar.fromWorkOrdinal(es[task.id],calendar),finish:Calendar.fromWorkOrdinal(Math.max(es[task.id],ef[task.id]-1),calendar)};
+    return {tasks:computed,order,projectStart:Calendar.fromWorkOrdinal(startOrd,calendar),projectFinish:Calendar.fromWorkOrdinal(Math.max(startOrd,projectFinish-1),calendar),duration:projectFinish-startOrd,criticalTasks:work.filter(x=>isCritical[x.id]).map(x=>x.id),criticalPaths:findCriticalPaths(work,computed,outgoing)};
+  }
+  function findCriticalPaths(tasks,c,outgoing,limit=20){
+    const ends=tasks.filter(x=>(outgoing.get(x.id)||[]).length===0&&c[x.id]?.isCritical), paths=[];
+    function walk(id,path){ if(paths.length>=limit)return; const task=tasks.find(x=>x.id===id); const preds=(task?.links||[]).filter(l=>c[l.fromId]?.isCritical&&c[l.fromId].EF+(normaliseType(l.type)==='FS'?Number(l.lagDays||0):0)<=c[id].ES+Math.max(0,c[id].durationDays)).map(l=>l.fromId); if(!preds.length){paths.push([id,...path]);return;} for(const p of preds)walk(p,[id,...path]); }
+    ends.forEach(x=>walk(x.id,[])); return paths;
+  }
+  return {calculate,topological,normaliseType,delta};
+})();
+
+/* =========================================================
+   Store — persistence boundary can later be replaced by API.
+   ========================================================= */
+const Store = (() => {
+  const KEY='chiefplanner.project.v1';
+  function load(){try{const raw=localStorage.getItem(KEY);return raw?JSON.parse(raw):null;}catch(e){console.warn('ChiefPlanner: localStorage unavailable; using memory only.',e);return null;}}
+  function save(value){try{localStorage.setItem(KEY,JSON.stringify(value));return true;}catch(e){console.warn('ChiefPlanner: could not save to localStorage.',e);return false;}}
+  return {load,save};
+})();
+
+/* Minimal project-shaped object used by the core and tests. */
+const project = {
+  app:'ChiefPlanner',schemaVersion:1,
+  meta:{name:'',client:'',site:'',engineer:'',revision:'A',lang:(navigator.language||'en').toLowerCase().startsWith('fr')?'fr':'en'},
+  calendar:{workdays:[1,2,3,4,5],holidays:[],projectStart:'2026-01-05'},
+  tasks:[],baseline:null
+};
+
+/* =========================================================
+   Self-tests — deterministic assertions; failures are loud.
+   ========================================================= */
+function runSelfTests(){
+  const results=[];
+  const test=(name,fn)=>{try{fn();results.push({name,ok:true});console.log('✓',name);}catch(e){results.push({name,ok:false,error:e.message});console.error('✗',name,e);}};
+  const assert=(condition,message='assertion failed')=>{if(!condition)throw Error(message);};
+  const cal={workdays:[1,2,3,4,5],holidays:[{date:'2026-01-06',label:'Holiday'}],projectStart:'2026-01-05'};
+  test('calendar skips weekends and holidays',()=>{assert(Calendar.addWorkdays('2026-01-05',1,cal)==='2026-01-07');assert(Calendar.nextWorkday('2026-01-10',cal)==='2026-01-12');assert(Calendar.workdaysBetween('2026-01-05','2026-01-08',cal)===2);});
+  test('calendar negative offsets and ISO validation',()=>{assert(Calendar.addWorkdays('2026-01-07',-1,cal)==='2026-01-05');let threw=false;try{Calendar.parse('2026-02-30')}catch(_){threw=true}assert(threw);});
+  test('all dependency types normalize and compute offsets',()=>{const p={durationDays:4},s={durationDays:2};assert(CPM.delta({type:'FS',lagDays:0},p,s)===4);assert(CPM.delta({type:'SS',lagDays:0},p,s)===0);assert(CPM.delta({type:'FF',lagDays:0},p,s)===2);assert(CPM.delta({type:'SF',lagDays:0},p,s)===-2);assert(CPM.normaliseType('FD')==='FS'&&CPM.normaliseType('DD')==='SS'&&CPM.normaliseType('DF')==='SF');});
+  test('lag and lead offsets',()=>{const p={durationDays:4},s={durationDays:2};assert(CPM.delta({type:'FS',lagDays:2},p,s)===6);assert(CPM.delta({type:'FS',lagDays:-1},p,s)===3);});
+  test('Kahn topological sort detects cycles',()=>{let threw=false;try{CPM.topological([{id:'a',links:[{fromId:'b'}]},{id:'b',links:[{fromId:'a'}]}])}catch(e){threw=/Circular dependency/.test(e.message)}assert(threw,'cycle should be rejected');});
+  test('critical path for known 8-task network',()=>{
+    const tasks=[
+      {id:'A',name:'A',durationDays:3,links:[]},
+      {id:'B',name:'B',durationDays:4,links:[{fromId:'A',type:'FS',lagDays:0}]},
+      {id:'C',name:'C',durationDays:2,links:[{fromId:'A',type:'FS',lagDays:0}]},
+      {id:'D',name:'D',durationDays:5,links:[{fromId:'B',type:'FS',lagDays:0},{fromId:'C',type:'FS',lagDays:0}]},
+      {id:'E',name:'E',durationDays:2,links:[{fromId:'C',type:'FS',lagDays:0}]},
+      {id:'F',name:'F',durationDays:3,links:[{fromId:'D',type:'FS',lagDays:0},{fromId:'E',type:'FS',lagDays:0}]},
+      {id:'G',name:'G',durationDays:2,links:[{fromId:'F',type:'FS',lagDays:0}]},
+      {id:'H',name:'H',durationDays:1,links:[{fromId:'G',type:'FS',lagDays:0}]}
+    ];
+    const r=CPM.calculate(tasks,{...cal,holidays:[]});
+    assert(r.duration===18,'expected project duration 18, got '+r.duration);
+    assert(r.tasks.A.totalFloat===0&&r.tasks.B.totalFloat===0&&r.tasks.D.totalFloat===0&&r.tasks.F.totalFloat===0&&r.tasks.G.totalFloat===0&&r.tasks.H.totalFloat===0,'expected A-B-D-F-G-H critical chain');
+    assert(r.tasks.C.totalFloat===2,'expected C total float 2, got '+r.tasks.C.totalFloat);
+    assert(r.tasks.E.totalFloat===3,'expected E total float 3, got '+r.tasks.E.totalFloat);
+  });
+  test('bilingual dictionaries have matching keys and placeholders',()=>assert(checkI18n()));
+  const failed=results.filter(x=>!x.ok);
+  console.info('ChiefPlanner Stage 1 self-test summary:',results.length-failed.length,'passed,',failed.length,'failed.');
+  return {passed:results.length-failed.length,failed:failed.length,results};
+}
+const shouldTest=new URLSearchParams(location.search).get('test')==='1';
+let testResults=null;
+if(shouldTest) testResults=runSelfTests();
+document.getElementById('status').textContent=shouldTest
+  ? ('Self-tests: '+testResults.passed+' passed, '+testResults.failed+' failed. See developer console.')
+  : 'Calendar, CPM, i18n and Store modules loaded. Add ?test=1 to run self-tests.';
+window.ChiefPlannerCore={Calendar,CPM,Store,i18n,t,checkI18n,runSelfTests};
+</script>
+</body>
+</html>
