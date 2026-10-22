@@ -283,7 +283,7 @@ if(shouldTest) testResults=runSelfTests();
 document.getElementById('status').textContent=shouldTest
   ? ('Self-tests: '+testResults.passed+' passed, '+testResults.failed+' failed. See developer console.')
   : 'Calendar, CPM, i18n and Store modules loaded. Add ?test=1 to run self-tests.';
-window.ChiefPlannerCore={Calendar,CPM,Store,i18n,t,checkI18n,runSelfTests};
+window.ChiefPlannerCore={project,Calendar,CPM,Store,i18n,t,checkI18n,runSelfTests};
 </script>
 <script src="app.js" defer></script>
 </body>
